@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"io"
 	"net/http"
@@ -18,6 +20,7 @@ import (
 	"github.com/go-ocf/kit/codec/json"
 	"github.com/go-ocf/kit/log"
 	kitHttp "github.com/go-ocf/kit/net/http"
+	"github.com/go-ocf/kit/net/http/transport"
 )
 
 const AuthorizationHeader string = "Authorization"
@@ -45,8 +48,21 @@ func NewSubscriptionManager(EventsURL string, asClient pbAS.AuthorizationService
 	}
 }
 
+func NewHTTPClientWihoutVerifyServer() *http.Client {
+	t := transport.NewDefaultTransport()
+	t.TLSClientConfig = &tls.Config{
+		InsecureSkipVerify: true,
+		VerifyPeerCertificate: func([][]byte, [][]*x509.Certificate) error {
+			return nil
+		},
+	}
+	return &http.Client{
+		Transport: t,
+	}
+}
+
 func subscribe(ctx context.Context, href, correlationID string, reqBody events.SubscriptionRequest, l store.LinkedAccount) (resp events.SubscriptionResponse, err error) {
-	client := http.Client{}
+	client := NewHTTPClientWihoutVerifyServer()
 
 	r, w := io.Pipe()
 
@@ -82,7 +98,7 @@ func subscribe(ctx context.Context, href, correlationID string, reqBody events.S
 }
 
 func cancelSubscription(ctx context.Context, href string, l store.LinkedAccount) error {
-	client := http.Client{}
+	client := NewHTTPClientWihoutVerifyServer()
 	req, err := http.NewRequest("DELETE", l.TargetURL+kitHttp.CanonicalHref(href), nil)
 	if err != nil {
 		return fmt.Errorf("cannot create delete request: %v", err)
@@ -163,7 +179,7 @@ func (s *SubscribeManager) HandleEvent(ctx context.Context, header events.EventH
 
 	s.cache.Set(header.CorrelationID, subData, cache.DefaultExpiration)
 
-	subData.linkedAccount, err = subData.linkedAccount.RefreshTokens(ctx, s.store)
+	subData.linkedAccount, err = subData.linkedAccount.RefreshTokens(ctx, s.store, NewHTTPClientWihoutVerifyServer())
 	if err != nil {
 		return http.StatusGone, fmt.Errorf("cannot refresh access token for linked account %v: %v", subData.linkedAccount.ID, err)
 	}
@@ -282,7 +298,7 @@ func (s *SubscribeManager) StopSubscriptions(ctx context.Context, l store.Linked
 	if len(h.subscriptions) == 0 {
 		return nil
 	}
-	l, err = l.RefreshTokens(ctx, s.store)
+	l, err = l.RefreshTokens(ctx, s.store, NewHTTPClientWihoutVerifyServer())
 
 	var errors []error
 	for _, sub := range h.subscriptions {

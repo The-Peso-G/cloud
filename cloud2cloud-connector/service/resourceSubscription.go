@@ -35,14 +35,9 @@ func cancelResourceSubscription(ctx context.Context, l store.LinkedAccount, devi
 	return nil
 }
 
-func (s *SubscribeManager) HandleResourceChangedEvent(ctx context.Context, subscriptionData subscriptionData, header events.EventHeader, body []byte) error {
-	userID, err := subscriptionData.linkedAccount.OriginCloud.AccessToken.GetSubject()
-	if err != nil {
-		return fmt.Errorf("cannot get userID for device (%v) resource (%v) content changed: %v", subscriptionData.subscription.DeviceID, subscriptionData.subscription.Href, err)
-	}
-
+func notifyResourceChanged(ctx context.Context, raClient pbRA.ResourceAggregateClient, deviceID, href, userID string, contentType string, body []byte, cmdMeta pbCQRS.CommandMetadata) error {
 	coapContentFormat := int32(-1)
-	switch header.ContentType {
+	switch contentType {
 	case coap.AppCBOR.String():
 		coapContentFormat = int32(coap.AppCBOR)
 	case coap.AppOcfCbor.String():
@@ -51,22 +46,37 @@ func (s *SubscribeManager) HandleResourceChangedEvent(ctx context.Context, subsc
 		coapContentFormat = int32(coap.AppJSON)
 	}
 
-	_, err = s.raClient.NotifyResourceChanged(kitNetGrpc.CtxWithToken(ctx, subscriptionData.linkedAccount.OriginCloud.AccessToken.String()), &pbRA.NotifyResourceChangedRequest{
+	_, err := raClient.NotifyResourceChanged(ctx, &pbRA.NotifyResourceChangedRequest{
 		AuthorizationContext: &pbCQRS.AuthorizationContext{
 			UserId:   userID,
-			DeviceId: subscriptionData.subscription.DeviceID,
+			DeviceId: deviceID,
 		},
-		ResourceId: raCqrs.MakeResourceId(subscriptionData.subscription.DeviceID, kitHttp.CanonicalHref(subscriptionData.subscription.Href)),
-		CommandMetadata: &pbCQRS.CommandMetadata{
-			ConnectionId: Cloud2cloudConnectorConnectionId,
-			Sequence:     header.SequenceNumber,
-		},
+		ResourceId:      raCqrs.MakeResourceId(deviceID, kitHttp.CanonicalHref(href)),
+		CommandMetadata: &cmdMeta,
 		Content: &pbRA.Content{
 			Data:              body,
-			ContentType:       header.ContentType,
+			ContentType:       contentType,
 			CoapContentFormat: coapContentFormat,
 		},
 	})
+	return err
+}
+
+func (s *SubscribeManager) HandleResourceChangedEvent(ctx context.Context, subscriptionData subscriptionData, header events.EventHeader, body []byte) error {
+	userID, err := subscriptionData.linkedAccount.OriginCloud.AccessToken.GetSubject()
+	if err != nil {
+		return fmt.Errorf("cannot get userID for device (%v) resource (%v) content changed: %v", subscriptionData.subscription.DeviceID, subscriptionData.subscription.Href, err)
+	}
+	err = notifyResourceChanged(
+		kitNetGrpc.CtxWithToken(ctx, subscriptionData.linkedAccount.OriginCloud.AccessToken.String()),
+		s.raClient,
+		subscriptionData.subscription.DeviceID,
+		subscriptionData.subscription.Href,
+		userID,
+		header.ContentType,
+		body,
+		makeCommandMetadata(header.SequenceNumber),
+	)
 	if err != nil {
 		return fmt.Errorf("cannot update resource aggregate (%v) resource (%v) content changed: %v", subscriptionData.subscription.DeviceID, subscriptionData.subscription.Href, err)
 	}

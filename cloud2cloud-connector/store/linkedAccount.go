@@ -35,7 +35,7 @@ func (h *LinkedCloudsHandler) Handle(ctx context.Context, iter LinkedCloudIter) 
 	return iter.Err()
 }
 
-func (o OAuth) Refresh(ctx context.Context, s Store) (OAuth, error) {
+func (o OAuth) Refresh(ctx context.Context, s Store, httpClient *http.Client) (OAuth, error) {
 	if o.Expiry.IsZero() {
 		return o, nil
 	}
@@ -52,7 +52,7 @@ func (o OAuth) Refresh(ctx context.Context, s Store) (OAuth, error) {
 	restoredToken := oauth2.Token{
 		RefreshToken: o.RefreshToken,
 	}
-	ctx = context.WithValue(ctx, oauth2.HTTPClient, http.DefaultClient)
+	ctx = context.WithValue(ctx, oauth2.HTTPClient, httpClient)
 	tokenSource := c.TokenSource(ctx, &restoredToken)
 	token, err := tokenSource.Token()
 	if err != nil {
@@ -117,7 +117,7 @@ type LinkedAccount struct {
 	OriginCloud OAuth
 }
 
-func (l LinkedAccount) RefreshTokens(ctx context.Context, s Store) (LinkedAccount, error) {
+func (l LinkedAccount) RefreshTokens(ctx context.Context, s Store, httpClient *http.Client) (LinkedAccount, error) {
 	if l.TargetCloud.IsValidAccessToken() && l.OriginCloud.IsValidAccessToken() {
 		return l, nil
 	}
@@ -125,13 +125,13 @@ func (l LinkedAccount) RefreshTokens(ctx context.Context, s Store) (LinkedAccoun
 	o := l.OriginCloud
 	var err error
 	if !t.IsValidAccessToken() {
-		t, err = t.Refresh(ctx, s)
+		t, err = t.Refresh(ctx, s, httpClient)
 		if err != nil {
 			return l, fmt.Errorf("cannot refreash target cloud access token: %v", err)
 		}
 	}
 	if !o.IsValidAccessToken() {
-		o, err = o.Refresh(ctx, s)
+		o, err = o.Refresh(ctx, s, httpClient)
 		if err != nil {
 			return l, fmt.Errorf("cannot refresh target cloud access token: %v", err)
 		}

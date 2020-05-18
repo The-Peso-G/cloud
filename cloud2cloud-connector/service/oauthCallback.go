@@ -8,6 +8,7 @@ import (
 	"github.com/gofrs/uuid"
 
 	"github.com/go-ocf/cloud/cloud2cloud-connector/store"
+	"github.com/go-ocf/kit/log"
 	"golang.org/x/oauth2"
 )
 
@@ -17,7 +18,7 @@ func (rh *RequestHandler) HandleLinkedAccount(ctx context.Context, data LinkedAc
 	case LinkedAccountState_START:
 		oauth = rh.originCloud.ToOAuth2Config()
 		oauth.RedirectURL = rh.oauthCallback
-		ctx = context.WithValue(ctx, oauth2.HTTPClient, http.DefaultClient)
+		ctx = context.WithValue(ctx, oauth2.HTTPClient, NewHTTPClientWihoutVerifyServer())
 		token, err := oauth.Exchange(ctx, authCode)
 		if err != nil {
 			return data, fmt.Errorf("cannot exchange origin cloud authorization code for access token: %v", err)
@@ -35,7 +36,8 @@ func (rh *RequestHandler) HandleLinkedAccount(ctx context.Context, data LinkedAc
 		}
 		oauth = h.linkedCloud.ToOAuth2Config()
 		oauth.RedirectURL = rh.oauthCallback
-		ctx = context.WithValue(ctx, oauth2.HTTPClient, http.DefaultClient)
+		ctx = context.WithValue(ctx, oauth2.HTTPClient, NewHTTPClientWihoutVerifyServer())
+
 		token, err := oauth.Exchange(ctx, authCode)
 		if err != nil {
 			return data, fmt.Errorf("cannot exchange target cloud authorization code for access token: %v", err)
@@ -81,9 +83,11 @@ func (rh *RequestHandler) oAuthCallback(w http.ResponseWriter, r *http.Request) 
 			return http.StatusBadRequest, fmt.Errorf("cannot store linked account for url %v: %v", data.LinkedAccount.TargetURL, err)
 		}
 		err = rh.subManager.StartSubscriptions(r.Context(), newData.LinkedAccount)
+
 		if err != nil {
-			rh.store.RemoveLinkedAccount(r.Context(), newData.LinkedAccount.ID)
-			return http.StatusBadRequest, fmt.Errorf("cannot start subscriptions %v: %v", data.LinkedAccount.TargetURL, err)
+			log.Errorf("cannot start subscriptions %v: %v", data.LinkedAccount.TargetURL, err)
+			//	rh.store.RemoveLinkedAccount(r.Context(), newData.LinkedAccount.ID)
+			//	return http.StatusBadRequest,
 		}
 		return http.StatusOK, nil
 	}

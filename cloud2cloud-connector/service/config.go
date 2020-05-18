@@ -3,6 +3,7 @@ package service
 import (
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/go-ocf/cloud/cloud2cloud-connector/store"
 
@@ -12,11 +13,13 @@ import (
 //Config represent application configuration
 type Config struct {
 	grpc.Config
-	AuthServerAddr        string `envconfig:"AUTH_SERVER_ADDRESS" default:"127.0.0.1:9100"`
-	ResourceAggregateAddr string `envconfig:"RESOURCE_AGGREGATE_ADDRESS"  default:"127.0.0.1:9100"`
-	FQDN                  string `envconfig:"FQDN" default:"cloud2cloud.pluggedin.cloud"`
-	OAuthCallback         string `envconfig:"OAUTH_CALLBACK" required:"true"`
-	EventsURL             string `envconfig:"EVENTS_URL" required:"true"`
+	AuthServerAddr        string        `envconfig:"AUTH_SERVER_ADDRESS" default:"127.0.0.1:9100"`
+	ResourceAggregateAddr string        `envconfig:"RESOURCE_AGGREGATE_ADDRESS"  default:"127.0.0.1:9100"`
+	FQDN                  string        `envconfig:"FQDN" default:"cloud2cloud.pluggedin.cloud"`
+	OAuthCallback         string        `envconfig:"OAUTH_CALLBACK" required:"true"`
+	EventsURL             string        `envconfig:"EVENTS_URL" required:"true"`
+	PullDevicesDisabled   bool          `envconfig:"PULL_DEVICES_DISABLED" default:"false"`
+	PullDevicesInterval   time.Duration `envconfig:"PULL_DEVICES_INTERVAL" default:"5s"`
 	OriginCloud           store.LinkedCloud
 }
 

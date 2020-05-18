@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"golang.org/x/oauth2"
+
 	"github.com/go-ocf/cloud/cloud2cloud-connector/store"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -12,8 +14,9 @@ import (
 const resLinkedCloudCName = "LinkedCloud"
 
 type dbEndpoint struct {
-	AuthUrl  string
-	TokenUrl string
+	AuthUrl   string
+	TokenUrl  string
+	AuthStyle int
 }
 
 type dbLinkedCloud struct {
@@ -35,8 +38,9 @@ func makeDBLinkedCloud(sub store.LinkedCloud) dbLinkedCloud {
 		Scopes:       sub.Scopes,
 		Audience:     sub.Audience,
 		Endpoint: dbEndpoint{
-			AuthUrl:  sub.Endpoint.AuthUrl,
-			TokenUrl: sub.Endpoint.TokenUrl,
+			AuthUrl:   sub.Endpoint.AuthUrl,
+			TokenUrl:  sub.Endpoint.TokenUrl,
+			AuthStyle: int(sub.Endpoint.AuthStyle),
 		},
 	}
 
@@ -161,8 +165,9 @@ func (i *linkedCloudIterator) Next(ctx context.Context, s *store.LinkedCloud) bo
 	s.Scopes = sub.Scopes
 	s.Audience = sub.Audience
 	s.Endpoint = store.Endpoint{
-		AuthUrl:  sub.Endpoint.AuthUrl,
-		TokenUrl: sub.Endpoint.TokenUrl,
+		AuthUrl:   sub.Endpoint.AuthUrl,
+		TokenUrl:  sub.Endpoint.TokenUrl,
+		AuthStyle: oauth2.AuthStyle(sub.Endpoint.AuthStyle),
 	}
 
 	return true

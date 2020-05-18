@@ -40,7 +40,7 @@ func cancelDevicesSubscription(ctx context.Context, l store.LinkedAccount, subsc
 	return nil
 }
 
-func (s *SubscribeManager) publishCloudDeviceStatus(ctx context.Context, deviceID string, authCtx pbCQRS.AuthorizationContext, sequence uint64) error {
+func publishCloudDeviceStatus(ctx context.Context, raClient pbRA.ResourceAggregateClient, userID, deviceID string, cmdMeta pbCQRS.CommandMetadata) error {
 	resource := pbRA.Resource{
 		Id:            raCqrs.MakeResourceId(deviceID, cloud.StatusHref),
 		Href:          cloud.StatusHref,
@@ -53,17 +53,17 @@ func (s *SubscribeManager) publishCloudDeviceStatus(ctx context.Context, deviceI
 		Title: "Cloud device status",
 	}
 	request := pbRA.PublishResourceRequest{
-		AuthorizationContext: &authCtx,
-		ResourceId:           resource.Id,
-		Resource:             &resource,
-		TimeToLive:           0,
-		CommandMetadata: &pbCQRS.CommandMetadata{
-			Sequence:     sequence,
-			ConnectionId: Cloud2cloudConnectorConnectionId,
+		AuthorizationContext: &pbRA.AuthorizationContext{
+			DeviceId: deviceID,
+			UserId:   userID,
 		},
+		ResourceId:      resource.Id,
+		Resource:        &resource,
+		TimeToLive:      0,
+		CommandMetadata: &cmdMeta,
 	}
 
-	_, err := s.raClient.PublishResource(ctx, &request)
+	_, err := raClient.PublishResource(ctx, &request)
 	if err != nil {
 		return fmt.Errorf("cannot process command publish resource: %v", err)
 	}
@@ -77,7 +77,7 @@ func (s *SubscribeManager) HandleDevicesRegistered(ctx context.Context, d subscr
 		return fmt.Errorf("cannot get userID: %v", err)
 	}
 	for _, device := range devices {
-		ctx := kitNetGrpc.CtxWithToken(ctx, d.linkedAccount.OriginCloud.AccessToken.String())
+		ctx := kitNetGrpc.CtxWithToken(kitNetGrpc.CtxWithToken(ctx, d.linkedAccount.OriginCloud.AccessToken.String()), d.linkedAccount.OriginCloud.AccessToken.String())
 		_, err := s.asClient.AddDevice(ctx, &pbAS.AddDeviceRequest{
 			DeviceId: device.ID,
 			UserId:   userID,
@@ -86,12 +86,7 @@ func (s *SubscribeManager) HandleDevicesRegistered(ctx context.Context, d subscr
 			errors = append(errors, err)
 			continue
 		}
-		authCtx := pbCQRS.AuthorizationContext{
-			UserId:   userID,
-			DeviceId: device.ID,
-		}
-
-		err = s.publishCloudDeviceStatus(ctx, device.ID, authCtx, header.SequenceNumber)
+		err = publishCloudDeviceStatus(kitNetGrpc.CtxWithToken(ctx, d.linkedAccount.OriginCloud.AccessToken.String()), s.raClient, userID, device.ID, makeCommandMetadata(header.SequenceNumber))
 		if err != nil {
 			errors = append(errors, err)
 			continue
@@ -192,12 +187,7 @@ func (s *SubscribeManager) HandleDevicesOnline(ctx context.Context, subscription
 			errors = append(errors, fmt.Errorf("cannot get userID for set device(%v) online: %v", device.ID, err))
 			continue
 		}
-		authCtx := pbCQRS.AuthorizationContext{
-			UserId:   userID,
-			DeviceId: device.ID,
-		}
-
-		err = s.updateCloudStatus(kitNetGrpc.CtxWithToken(ctx, subscriptionData.linkedAccount.OriginCloud.AccessToken.String()), device.ID, true, authCtx, header.SequenceNumber)
+		err = updateCloudStatus(kitNetGrpc.CtxWithToken(ctx, subscriptionData.linkedAccount.OriginCloud.AccessToken.String()), s.raClient, userID, device.ID, true, makeCommandMetadata(header.SequenceNumber))
 
 		if err != nil {
 			errors = append(errors, fmt.Errorf("cannot set device %v to online: %v", device.ID, err))
@@ -219,12 +209,8 @@ func (s *SubscribeManager) HandleDevicesOffline(ctx context.Context, subscriptio
 			errors = append(errors, fmt.Errorf("cannot get userID for set device(%v) offline: %v", device.ID, err))
 			continue
 		}
-		authCtx := pbCQRS.AuthorizationContext{
-			UserId:   userID,
-			DeviceId: device.ID,
-		}
 
-		err = s.updateCloudStatus(kitNetGrpc.CtxWithToken(ctx, subscriptionData.linkedAccount.OriginCloud.AccessToken.String()), device.ID, false, authCtx, header.SequenceNumber)
+		err = updateCloudStatus(kitNetGrpc.CtxWithToken(ctx, subscriptionData.linkedAccount.OriginCloud.AccessToken.String()), s.raClient, userID, device.ID, false, makeCommandMetadata(header.SequenceNumber))
 
 		if err != nil {
 			errors = append(errors, fmt.Errorf("cannot set device %v to offline: %v", device.ID, err))

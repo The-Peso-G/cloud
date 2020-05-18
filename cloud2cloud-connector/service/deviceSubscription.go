@@ -14,6 +14,7 @@ import (
 	"github.com/go-ocf/kit/codec/cbor"
 	kitNetGrpc "github.com/go-ocf/kit/net/grpc"
 	kitHttp "github.com/go-ocf/kit/net/http"
+	"github.com/go-ocf/sdk/schema"
 	"github.com/go-ocf/sdk/schema/cloud"
 	"github.com/gofrs/uuid"
 	cache "github.com/patrickmn/go-cache"
@@ -42,7 +43,14 @@ func cancelDeviceSubscription(ctx context.Context, l store.LinkedAccount, device
 	return nil
 }
 
-func (s *SubscribeManager) updateCloudStatus(ctx context.Context, deviceID string, online bool, authContext pbCQRS.AuthorizationContext, sequence uint64) error {
+func makeCommandMetadata(sequence uint64) pbCQRS.CommandMetadata {
+	return pbCQRS.CommandMetadata{
+		ConnectionId: Cloud2cloudConnectorConnectionId,
+		Sequence:     sequence,
+	}
+}
+
+func updateCloudStatus(ctx context.Context, raClient pbRA.ResourceAggregateClient, userID, deviceID string, online bool, cmdMeta pbCQRS.CommandMetadata) error {
 	status := cloud.Status{
 		ResourceTypes: cloud.StatusResourceTypes,
 		Interfaces:    cloud.StatusInterfaces,
@@ -60,15 +68,15 @@ func (s *SubscribeManager) updateCloudStatus(ctx context.Context, deviceID strin
 			CoapContentFormat: int32(gocoap.AppOcfCbor),
 			Data:              data,
 		},
-		Status: pbRA.Status_OK,
-		CommandMetadata: &pbCQRS.CommandMetadata{
-			ConnectionId: Cloud2cloudConnectorConnectionId,
-			Sequence:     sequence,
+		Status:          pbRA.Status_OK,
+		CommandMetadata: &cmdMeta,
+		AuthorizationContext: &pbCQRS.AuthorizationContext{
+			DeviceId: deviceID,
+			UserId:   userID,
 		},
-		AuthorizationContext: &authContext,
 	}
 
-	_, err = s.raClient.NotifyResourceChanged(ctx, &request)
+	_, err = raClient.NotifyResourceChanged(ctx, &request)
 	return err
 }
 
@@ -79,6 +87,40 @@ func trimDeviceIDFromHref(deviceID, href string) string {
 	return href
 }
 
+func publishResource(ctx context.Context, raClient pbRA.ResourceAggregateClient, userID string, link schema.ResourceLink, cmdMeta pbCQRS.CommandMetadata) error {
+	endpoints := make([]*pbRA.EndpointInformation, 0, 4)
+	for _, endpoint := range link.GetEndpoints() {
+		endpoints = append(endpoints, &pbRA.EndpointInformation{
+			Endpoint: endpoint.URI,
+			Priority: int64(endpoint.Priority),
+		})
+	}
+	href := trimDeviceIDFromHref(link.DeviceID, link.Href)
+	resourceId := raCqrs.MakeResourceId(link.DeviceID, kitHttp.CanonicalHref(href))
+	_, err := raClient.PublishResource(ctx, &pbRA.PublishResourceRequest{
+		AuthorizationContext: &pbCQRS.AuthorizationContext{
+			DeviceId: link.DeviceID,
+			UserId:   userID,
+		},
+		ResourceId: resourceId,
+		Resource: &pbRA.Resource{
+			Id:                    resourceId,
+			Href:                  href,
+			ResourceTypes:         link.ResourceTypes,
+			Interfaces:            link.Interfaces,
+			DeviceId:              link.DeviceID,
+			InstanceId:            link.InstanceID,
+			Anchor:                link.Anchor,
+			Policies:              &pbRA.Policies{BitFlags: int32(link.Policy.BitMask)},
+			Title:                 link.Title,
+			SupportedContentTypes: link.SupportedContentTypes,
+			EndpointInformations:  endpoints,
+		},
+		CommandMetadata: &cmdMeta,
+	})
+	return err
+}
+
 // HandleResourcesPublished publish resources to resource aggregate and subscribes to resources.
 func (s *SubscribeManager) HandleResourcesPublished(ctx context.Context, d subscriptionData, header events.EventHeader, links events.ResourcesPublished) error {
 	userID, err := d.linkedAccount.OriginCloud.AccessToken.GetSubject()
@@ -87,39 +129,7 @@ func (s *SubscribeManager) HandleResourcesPublished(ctx context.Context, d subsc
 	}
 	var errors []error
 	for _, link := range links {
-		endpoints := make([]*pbRA.EndpointInformation, 0, 4)
-		for _, endpoint := range link.GetEndpoints() {
-			endpoints = append(endpoints, &pbRA.EndpointInformation{
-				Endpoint: endpoint.URI,
-				Priority: int64(endpoint.Priority),
-			})
-		}
-		href := trimDeviceIDFromHref(link.DeviceID, link.Href)
-		resourceId := raCqrs.MakeResourceId(link.DeviceID, kitHttp.CanonicalHref(href))
-		_, err := s.raClient.PublishResource(kitNetGrpc.CtxWithToken(ctx, d.linkedAccount.OriginCloud.AccessToken.String()), &pbRA.PublishResourceRequest{
-			AuthorizationContext: &pbCQRS.AuthorizationContext{
-				UserId:   userID,
-				DeviceId: link.DeviceID,
-			},
-			ResourceId: resourceId,
-			Resource: &pbRA.Resource{
-				Id:                    resourceId,
-				Href:                  href,
-				ResourceTypes:         link.ResourceTypes,
-				Interfaces:            link.Interfaces,
-				DeviceId:              link.DeviceID,
-				InstanceId:            link.InstanceID,
-				Anchor:                link.Anchor,
-				Policies:              &pbRA.Policies{BitFlags: int32(link.Policy.BitMask)},
-				Title:                 link.Title,
-				SupportedContentTypes: link.SupportedContentTypes,
-				EndpointInformations:  endpoints,
-			},
-			CommandMetadata: &pbCQRS.CommandMetadata{
-				ConnectionId: Cloud2cloudConnectorConnectionId,
-				Sequence:     header.SequenceNumber,
-			},
-		})
+		err := publishResource(kitNetGrpc.CtxWithToken(ctx, d.linkedAccount.OriginCloud.AccessToken.String()), s.raClient, userID, link, makeCommandMetadata(header.SequenceNumber))
 		if err != nil {
 			errors = append(errors, fmt.Errorf("cannot publish resource: %v", err))
 			continue
@@ -138,7 +148,7 @@ func (s *SubscribeManager) HandleResourcesPublished(ctx context.Context, d subsc
 			Type:            store.Type_Resource,
 			LinkedAccountID: d.linkedAccount.ID,
 			DeviceID:        link.DeviceID,
-			Href:            href,
+			Href:            link.Href,
 			SigningSecret:   signingSecret,
 		}
 		err = s.cache.Add(correlationID.String(), subscriptionData{
@@ -149,10 +159,10 @@ func (s *SubscribeManager) HandleResourcesPublished(ctx context.Context, d subsc
 			errors = append(errors, fmt.Errorf("cannot cache subscription for device subscriptions: %v", err))
 			continue
 		}
-		sub.SubscriptionID, err = s.subscribeToResource(ctx, d.linkedAccount, correlationID.String(), signingSecret, link.DeviceID, href)
+		sub.SubscriptionID, err = s.subscribeToResource(ctx, d.linkedAccount, correlationID.String(), signingSecret, link.DeviceID, link.Href)
 		if err != nil {
 			s.cache.Delete(correlationID.String())
-			errors = append(errors, fmt.Errorf("cannot subscribe to device %v resource %v: %v", link.DeviceID, href, err))
+			errors = append(errors, fmt.Errorf("cannot subscribe to device %v resource %v: %v", link.DeviceID, link.Href, err))
 			continue
 		}
 		_, err = s.store.FindOrCreateSubscription(ctx, sub)

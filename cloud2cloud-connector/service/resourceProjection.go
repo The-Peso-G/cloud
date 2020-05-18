@@ -75,7 +75,7 @@ func makeUpdateHref(url, deviceID, href string) string {
 }
 
 func updateDeviceResource(deviceID, href, contentType string, content []byte, l store.LinkedAccount) (string, []byte, pbRA.Status, error) {
-	client := http.Client{}
+	client := NewHTTPClientWihoutVerifyServer()
 
 	r, w := io.Pipe()
 
@@ -148,7 +148,7 @@ func (m *resourceCtx) onPendingContentUpdate(ctx context.Context) error {
 		return fmt.Errorf("linked account not found")
 	}
 
-	linkedAccount, err := lah.linkedAccount.RefreshTokens(ctx, m.store)
+	linkedAccount, err := lah.linkedAccount.RefreshTokens(ctx, m.store, NewHTTPClientWihoutVerifyServer())
 	if err != nil {
 		return err
 	}

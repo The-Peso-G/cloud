@@ -3,8 +3,9 @@ package store
 import "golang.org/x/oauth2"
 
 type Endpoint struct {
-	AuthUrl  string `json:"AuthUrl" envconfig:"AUTH_URL" required:"true"`
-	TokenUrl string `json:"TokenUrl" envconfig:"TOKEN_URL" required:"true"`
+	AuthUrl   string           `json:"AuthUrl" envconfig:"AUTH_URL" required:"true"`
+	TokenUrl  string           `json:"TokenUrl" envconfig:"TOKEN_URL" required:"true"`
+	AuthStyle oauth2.AuthStyle `json:"AuthStyle" envconfig:"AUTH_STYLE"`
 }
 
 type LinkedCloud struct {
@@ -23,8 +24,9 @@ func (l LinkedCloud) ToOAuth2Config() oauth2.Config {
 		ClientSecret: l.ClientSecret,
 		Scopes:       l.Scopes,
 		Endpoint: oauth2.Endpoint{
-			AuthURL:  l.Endpoint.AuthUrl,
-			TokenURL: l.Endpoint.TokenUrl,
+			AuthURL:   l.Endpoint.AuthUrl,
+			TokenURL:  l.Endpoint.TokenUrl,
+			AuthStyle: l.Endpoint.AuthStyle,
 		},
 	}
 }

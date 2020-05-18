@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"sync"
 
 	"google.golang.org/grpc"
 
@@ -26,6 +27,8 @@ type Server struct {
 	cfg     Config
 	handler *RequestHandler
 	ln      net.Listener
+	cancel  context.CancelFunc
+	doneWg  *sync.WaitGroup
 }
 
 type loadDeviceSubscriptionsHandler struct {
@@ -101,11 +104,36 @@ func New(config Config, dialCertManager DialCertManager, listenCertManager Liste
 
 	requestHandler := NewRequestHandler(config.OriginCloud, config.OAuthCallback, NewSubscriptionManager(config.EventsURL, authClient, raClient, store, resourceProjection), authClient, raClient, resourceProjection, store)
 
+	ctx, cancel := context.WithCancel(context.Background())
+	var wg sync.WaitGroup
+	if !config.PullDevicesDisabled {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			parent := ctx
+			for {
+				ctx, cancel := context.WithTimeout(parent, config.PullDevicesInterval)
+				defer cancel()
+				err := pullDevices(ctx, store, authClient, raClient)
+				if err != nil {
+					log.Errorf("cannot pull devices: %v", err)
+				}
+				select {
+				case <-ctx.Done():
+					if ctx.Err() == context.Canceled {
+						return
+					}
+				}
+			}
+		}()
+	}
 	server := Server{
 		server:  NewHTTP(requestHandler),
 		cfg:     config,
 		handler: requestHandler,
 		ln:      ln,
+		cancel:  cancel,
+		doneWg:  &wg,
 	}
 
 	return &server
@@ -118,5 +146,7 @@ func (s *Server) Serve() error {
 
 // Shutdown ends serving
 func (s *Server) Shutdown() error {
+	s.cancel()
+	s.doneWg.Wait()
 	return s.server.Shutdown(context.Background())
 }
