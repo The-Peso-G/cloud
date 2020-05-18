@@ -87,7 +87,7 @@ func subscribe(ctx context.Context, href, correlationID string, reqBody events.S
 		return resp, fmt.Errorf("cannot post: %v", err)
 	}
 	defer httpResp.Body.Close()
-	if httpResp.StatusCode != http.StatusOK {
+	if httpResp.StatusCode != http.StatusOK && httpResp.StatusCode != http.StatusCreated {
 		return resp, fmt.Errorf("unexpected statusCode %v", httpResp.StatusCode)
 	}
 	err = json.ReadFrom(httpResp.Body, &resp)
@@ -112,7 +112,7 @@ func cancelSubscription(ctx context.Context, href string, l store.LinkedAccount)
 		return fmt.Errorf("cannot delete: %v", err)
 	}
 	defer httpResp.Body.Close()
-	if httpResp.StatusCode != http.StatusOK {
+	if httpResp.StatusCode != http.StatusOK && httpResp.StatusCode != http.StatusAccepted {
 		return fmt.Errorf("unexpected statusCode %v", httpResp.StatusCode)
 	}
 	return nil
