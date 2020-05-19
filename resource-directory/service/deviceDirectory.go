@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/go-ocf/sdk/schema"
+
 	pbDD "github.com/go-ocf/cloud/resource-directory/pb/device-directory"
 	"github.com/go-ocf/sdk/schema/cloud"
 
@@ -75,18 +77,37 @@ type Device struct {
 	cloudStateUpdated bool
 }
 
+func toLocalizedStrings(lclist []schema.LocalizedString) []*pbDD.LocalizedString {
+	if len(lclist) == 0 {
+		return nil
+	}
+	r := make([]*pbDD.LocalizedString, 0, len(lclist))
+	for _, lc := range lclist {
+		r = append(r, &pbDD.LocalizedString{
+			Language: lc.Language,
+			Value:    lc.Value,
+		})
+	}
+	return r
+}
+
 func updateDevice(dev Device, resource *resourceCtx) (Device, error) {
 	cloudResourceTypes := make(strings.Set)
 	cloudResourceTypes.Add(cloud.StatusResourceTypes...)
 
 	switch {
 	case resource.snapshot.Resource.Href == "/oic/d":
-		var devContent pbDD.Resource
+		var devContent schema.Device
 		err := decodeContent(resource.snapshot.GetLatestResourceChange().GetContent(), &devContent)
 		if err != nil {
 			return dev, err
 		}
-		dev.Resource = &devContent
+		dev.Resource = &pbDD.Resource{
+			ResourceTypes:    devContent.ResourceTypes,
+			Name:             devContent.Name,
+			ModelNumber:      devContent.ModelNumber,
+			ManufacturerName: toLocalizedStrings(devContent.ManufacturerName),
+		}
 		if len(dev.Resource.GetResourceTypes()) == 0 {
 			dev.Resource.ResourceTypes = resource.snapshot.Resource.ResourceTypes
 		}
