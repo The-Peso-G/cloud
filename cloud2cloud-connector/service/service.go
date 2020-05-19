@@ -114,7 +114,7 @@ func New(config Config, dialCertManager DialCertManager, listenCertManager Liste
 			for {
 				ctx, cancel := context.WithTimeout(parent, config.PullDevicesInterval)
 				defer cancel()
-				err := pullDevices(ctx, store, authClient, raClient)
+				err := pullDevices(ctx, store, authClient, raClient, resourceProjection)
 				if err != nil {
 					log.Errorf("cannot pull devices: %v", err)
 				}

@@ -52,7 +52,7 @@ func emitEvent(ctx context.Context, eventType events.EventType, s store.Subscrip
 
 	r, w := io.Pipe()
 
-	req, err := netHttp.NewRequest("POST", s.URL, r)
+	req, err := netHttp.NewRequestWithContext(ctx, "POST", s.URL, r)
 	if err != nil {
 		return false, fmt.Errorf("cannot create post request: %w", err)
 	}
@@ -90,6 +90,11 @@ func emitEvent(ctx context.Context, eventType events.EventType, s store.Subscrip
 		timestamp,
 		body,
 	))
+	// REMOVE me for samsung
+	select {
+	case <-ctx.Done():
+	case <-time.After(time.Second):
+	}
 
 	resp, err := client.Do(req)
 	if err != nil {

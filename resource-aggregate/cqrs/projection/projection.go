@@ -60,7 +60,7 @@ type projection struct {
 }
 
 func newProjection(ctx context.Context, name string, store eventstore.EventStore, subscriber eventbus.Subscriber, factoryModel eventstore.FactoryModelFunc, getTopics GetTopicsFunc) (*projection, error) {
-	cqrsProjection, err := cqrs.NewProjection(ctx, store, name, subscriber, factoryModel, log.Debugf)
+	cqrsProjection, err := cqrs.NewProjection(ctx, store, name, subscriber, factoryModel, func(string, ...interface{}) {})
 	if err != nil {
 		return nil, fmt.Errorf("cannot create Projection: %w", err)
 	}

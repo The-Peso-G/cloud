@@ -83,6 +83,7 @@ github.com/go-ocf/authorization v0.0.0-20200318102231-7b6f2c3de1f8 h1:CQTRxQh55E
 github.com/go-ocf/authorization v0.0.0-20200318102231-7b6f2c3de1f8/go.mod h1:r5zz7XS2uqc+avRsPpdv7aZS3ABNbtGdkfrJBY/AifA=
 github.com/go-ocf/certificate-authority v0.0.0-20200306090447-ff501f1cf29a/go.mod h1:0z120kuRIORuPujXrjGafXXpCgX3chBrevVd+WZFF4M=
 github.com/go-ocf/cloud v0.0.0-20200408100218-89a8e02454aa/go.mod h1:bgN+GeghCbIPncb3gYlhY70l1LhVH7SBP1dvRYeKa5w=
+github.com/go-ocf/cloud v0.0.0-20200415201755-085952a7b0b8/go.mod h1:GZ4p2GNhA9dEaVn3bK5Dc/v7BjB3JtReVlwhdD73iGw=
 github.com/go-ocf/coap-gateway v0.0.0-20191029135134-f6d64e927f2d/go.mod h1:nATrHRzqOGUkWP99R/66FoXGIVOIAuC6NiGW/5OoIQ8=
 github.com/go-ocf/coap-gateway v0.0.0-20191128113433-bf8268a9145d/go.mod h1:jgZuHpW4wW0kdrOa0jy/AgtA5otvkBMGxfraUruQ5gE=
 github.com/go-ocf/coap-gateway v0.0.0-20200206135044-4d6d04bae45e/go.mod h1:v0nWSD3MofMRfuIhjj6FQdp7Etc74qhfnDMDy5iMT/0=
@@ -176,6 +177,8 @@ github.com/go-ocf/sdk v0.0.0-20200408161730-424631fc67f3/go.mod h1:mU0HDyK3eyZXb
 github.com/go-ocf/sdk v0.0.0-20200409112144-f306e826ae33 h1:SebOrDhhe9CtlEey6WElOlQMwYEsvFpoVcb1OFqDiGU=
 github.com/go-ocf/sdk v0.0.0-20200409112144-f306e826ae33/go.mod h1:9vLNYHs9YT+5Ytye8mzdiAI0Xez/DZWTHaqiZMpEIVQ=
 github.com/go-ocf/sdk v0.0.0-20200416065600-d8f1f3d0d880 h1:4edgEYCQwG2Tadea5vjExW2mnshwuc9QjAs08GLJ7Wo=
+github.com/go-ocf/sdk v0.0.0-20200519063626-cb917369f154 h1:hwRgCLBvxnjnTpmY9i8guAwSHg9TY11uJR10iyZxQPw=
+github.com/go-ocf/sdk v0.0.0-20200519063626-cb917369f154/go.mod h1:cCr7j25hansOHweogf5Eoq6Fh0USkfWC9X8L71RMy7o=
 github.com/go-sql-driver/mysql v1.4.0/go.mod h1:zAC/RDZ24gD3HViQzih4MyKcchzm+sOG5ZlKdlhCg5w=
 github.com/go-sql-driver/mysql v1.4.1 h1:g24URVg0OFbNUTx9qqY1IRZ9D9z3iPyi5zKhQZpNwpA=
 github.com/go-sql-driver/mysql v1.4.1/go.mod h1:zAC/RDZ24gD3HViQzih4MyKcchzm+sOG5ZlKdlhCg5w=

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"net/http"
 	"strings"
 	"sync"
@@ -14,6 +15,7 @@ import (
 
 	pbAS "github.com/go-ocf/cloud/authorization/pb"
 	"github.com/go-ocf/cloud/cloud2cloud-connector/store"
+	projectionRA "github.com/go-ocf/cloud/resource-aggregate/cqrs/projection"
 	pbCQRS "github.com/go-ocf/cloud/resource-aggregate/pb"
 	pbRA "github.com/go-ocf/cloud/resource-aggregate/pb"
 	"github.com/go-ocf/kit/codec/json"
@@ -32,9 +34,10 @@ type RetrieveDeviceWithLinksResponse struct {
 }
 
 type pullDevicesHandler struct {
-	s        store.Store
-	asClient pbAS.AuthorizationServiceClient
-	raClient pbRA.ResourceAggregateClient
+	s                  store.Store
+	asClient           pbAS.AuthorizationServiceClient
+	raClient           pbRA.ResourceAggregateClient
+	resourceProjection *projectionRA.Projection
 }
 
 func getUsersDevices(ctx context.Context, asClient pbAS.AuthorizationServiceClient) (map[string]bool, error) {
@@ -82,9 +85,13 @@ func (p *pullDevicesHandler) getDevicesWithResourceLinks(ctx context.Context, ac
 	}
 	defer resp.Body.Close()
 	var devices []RetrieveDeviceWithLinksResponse
-	err = json.ReadFrom(resp.Body, devices)
+	buf, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
 		return err
+	}
+	err = json.Decode(buf, &devices)
+	if err != nil {
+		return fmt.Errorf("cannot decode body(%v): %w", string(buf), err)
 	}
 	registeredDevices, err := getUsersDevices(kitNetGrpc.CtxWithToken(ctx, account.OriginCloud.AccessToken.String()), p.asClient)
 	if err != nil {
@@ -104,7 +111,7 @@ func (p *pullDevicesHandler) getDevicesWithResourceLinks(ctx context.Context, ac
 				UserId:   userID,
 			})
 			if err != nil {
-				errors = append(errors, err)
+				errors = append(errors, fmt.Errorf("cannot addDevice %v: %w", deviceID, err))
 				continue
 			}
 
@@ -112,9 +119,10 @@ func (p *pullDevicesHandler) getDevicesWithResourceLinks(ctx context.Context, ac
 				ConnectionId: connectionID,
 			})
 			if err != nil {
-				errors = append(errors, err)
+				errors = append(errors, fmt.Errorf("cannot publish cloud status: %v: %w", deviceID, err))
 				continue
 			}
+
 		}
 		delete(registeredDevices, deviceID)
 		var online bool
@@ -125,25 +133,28 @@ func (p *pullDevicesHandler) getDevicesWithResourceLinks(ctx context.Context, ac
 			ConnectionId: connectionID,
 		})
 		if err != nil {
-			errors = append(errors, err)
+			errors = append(errors, fmt.Errorf("cannot update cloud status: %v: %w", deviceID, err))
 			continue
 		}
 		for _, link := range dev.Links {
+			link.DeviceID = deviceID
+			link.Href = removeDeviceIDFromHref(link.Href)
 			err := publishResource(kitNetGrpc.CtxWithToken(ctx, account.OriginCloud.AccessToken.String()), p.raClient, userID, link, pbCQRS.CommandMetadata{
 				ConnectionId: connectionID,
 			})
 			if err != nil {
-				errors = append(errors, err)
+				errors = append(errors, fmt.Errorf("cannot update cloud status: %+v: %w", link, err))
 				continue
 			}
 		}
 	}
 	for deviceID := range registeredDevices {
+		p.resourceProjection.Unregister(deviceID)
 		_, err := p.asClient.RemoveDevice(kitNetGrpc.CtxWithToken(ctx, account.OriginCloud.AccessToken.String()), &pbAS.RemoveDeviceRequest{
 			DeviceId: deviceID,
 		})
 		if err != nil {
-			errors = append(errors, err)
+			errors = append(errors, fmt.Errorf("cannot removeDevice %v: %w", deviceID, err))
 			continue
 		}
 	}
@@ -161,6 +172,12 @@ type Representation struct {
 type RetrieveDeviceContentAllResponse struct {
 	Device
 	Links []Representation `json:"links"`
+}
+
+func removeDeviceIDFromHref(href string) string {
+	hrefsp := strings.Split(href, "/")
+	href = "/" + strings.Join(hrefsp[2:], "/")
+	return href
 }
 
 func (p *pullDevicesHandler) getDevicesWithResourceValues(ctx context.Context, account store.LinkedAccount) error {
@@ -187,13 +204,49 @@ func (p *pullDevicesHandler) getDevicesWithResourceValues(ctx context.Context, a
 	}
 	defer resp.Body.Close()
 	var devices []RetrieveDeviceContentAllResponse
-	err = json.ReadFrom(resp.Body, devices)
+	buf, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
 		return err
+	}
+	err = json.Decode(buf, &devices)
+	if err != nil {
+		return fmt.Errorf("cannot decode body(%v): %w", string(buf), err)
 	}
 	for _, dev := range devices {
 		deviceID := dev.Device.Device.ID
 		for _, link := range dev.Links {
+			link.Href = removeDeviceIDFromHref(link.Href)
+
+			signingSecret, err := generateRandomString(32)
+			if err != nil {
+				errors = append(errors, fmt.Errorf("cannot generate signingSecret for device subscription: %v", err))
+				continue
+			}
+
+			sub := store.Subscription{
+				SubscriptionID:  account.ID + deviceID + link.Href,
+				Type:            store.Type_Resource,
+				LinkedAccountID: account.ID,
+				DeviceID:        deviceID,
+				Href:            link.Href,
+				SigningSecret:   signingSecret,
+			}
+			subNew, err := p.s.FindOrCreateSubscription(ctx, sub)
+			if err != nil {
+				errors = append(errors, fmt.Errorf("cannot find or create subscription %+v: %w", sub, err))
+				continue
+			}
+			if subNew.SigningSecret == sub.SigningSecret {
+				loaded, err := p.resourceProjection.Register(ctx, deviceID)
+				if err != nil {
+					errors = append(errors, fmt.Errorf("cannot register projection for %v: %w", deviceID, err))
+					continue
+				}
+				if !loaded {
+					p.resourceProjection.Unregister(deviceID)
+				}
+			}
+
 			body, err := json.Encode(link.Representation)
 			if err != nil {
 				errors = append(errors, err)
@@ -211,8 +264,9 @@ func (p *pullDevicesHandler) getDevicesWithResourceValues(ctx context.Context, a
 					ConnectionId: connectionID,
 				},
 			)
+			log.Debugf("notifyResourceChanged %v%v: %v", deviceID, link.Href, string(body))
 			if err != nil {
-				errors = append(errors, err)
+				errors = append(errors, fmt.Errorf("cannot notifyResourceChanged %+v: %w", link, err))
 				continue
 			}
 		}
@@ -247,6 +301,7 @@ func (p *pullDevicesHandler) Handle(ctx context.Context, iter store.LinkedAccoun
 		if !iter.Next(ctx, &s) {
 			break
 		}
+		log.Debugf("pulling devices for %v", s)
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -262,9 +317,13 @@ func (p *pullDevicesHandler) Handle(ctx context.Context, iter store.LinkedAccoun
 
 func pullDevices(ctx context.Context, s store.Store,
 	asClient pbAS.AuthorizationServiceClient,
-	raClient pbRA.ResourceAggregateClient) error {
+	raClient pbRA.ResourceAggregateClient,
+	resourceProjection *projectionRA.Projection) error {
 	h := pullDevicesHandler{
-		s: s,
+		s:                  s,
+		asClient:           asClient,
+		raClient:           raClient,
+		resourceProjection: resourceProjection,
 	}
 	return s.LoadLinkedAccounts(ctx, store.Query{}, &h)
 }

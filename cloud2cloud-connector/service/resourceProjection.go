@@ -130,6 +130,7 @@ func updateDeviceResource(deviceID, href, contentType string, content []byte, l 
 }
 
 func (m *resourceCtx) onPendingContentUpdate(ctx context.Context) error {
+	log.Debug("onPendingContentUpdate")
 	var h SubscriptionHandler
 	err := m.store.LoadSubscriptions(ctx, []store.SubscriptionQuery{{Type: store.Type_Resource, DeviceID: m.resource.DeviceId, Href: m.resource.Href}}, &h)
 	if err != nil {
@@ -167,6 +168,7 @@ func (m *resourceCtx) onPendingContentUpdate(ctx context.Context) error {
 			log.Errorf("cannot update content of device %v resource %v: %v", m.resource.DeviceId, m.resource.Href, err)
 		}
 		coapContentFormat := int32(-1)
+		log.Debugf("updateDeviceResource %v%v: [%v]%v -> %v:[%v]%v", m.resource.DeviceId, m.resource.Href, m.pendingContentUpdate[0].Content.ContentType, string(m.pendingContentUpdate[0].Content.Data), status, contentType, string(content))
 
 		switch contentType {
 		case coap.AppCBOR.String():
@@ -216,7 +218,7 @@ func (m *resourceCtx) Handle(ctx context.Context, iter event.Iter) error {
 	var anyEventProcessed bool
 	for iter.Next(ctx, &eu) {
 		anyEventProcessed = true
-		log.Debugf("resourceCtx.Handle: DeviceId: %v, ResourceId: %v, Version: %v, EventType: %v", eu.GroupId, eu.AggregateId, eu.Version, eu.EventType)
+		//log.Debugf("resourceCtx.Handle: DeviceId: %v, ResourceId: %v, Version: %v, EventType: %v", eu.GroupId, eu.AggregateId, eu.Version, eu.EventType)
 		switch eu.EventType {
 		case kitHttp.ProtobufContentType(&pbRA.ResourceStateSnapshotTaken{}):
 			var s raEvents.ResourceStateSnapshotTaken
