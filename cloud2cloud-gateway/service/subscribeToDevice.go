@@ -6,6 +6,7 @@ import (
 
 	"github.com/go-ocf/cloud/cloud2cloud-connector/events"
 	oapiStore "github.com/go-ocf/cloud/cloud2cloud-connector/store"
+	"github.com/go-ocf/kit/log"
 
 	"github.com/gorilla/mux"
 )
@@ -62,6 +63,15 @@ func (rh *RequestHandler) subscribeToDevice(w http.ResponseWriter, r *http.Reque
 		return http.StatusBadRequest, fmt.Errorf("cannot load resources for device and device: %w", err)
 	}
 
+	err = jsonResponseWriterEncoder(w, SubscriptionResponse{
+		SubscriptionID: s.ID,
+	}, http.StatusCreated)
+	if err != nil {
+		rh.resourceProjection.Unregister(deviceID)
+		rh.store.PopSubscription(r.Context(), s.ID)
+		return http.StatusBadRequest, fmt.Errorf("cannot write response: %w", err)
+	}
+
 	for _, eventType := range s.EventTypes {
 		var rep interface{}
 		switch eventType {
@@ -71,19 +81,8 @@ func (rh *RequestHandler) subscribeToDevice(w http.ResponseWriter, r *http.Reque
 
 		_, err = emitEvent(r.Context(), eventType, s, rh.store.IncrementSubscriptionSequenceNumber, rep)
 		if err != nil {
-			rh.resourceProjection.Unregister(deviceID)
-			rh.store.PopSubscription(r.Context(), s.ID)
-			return http.StatusBadRequest, fmt.Errorf("cannot emit event: %w", err)
+			log.Errorf("subscribeToDevice %+v: cannot emit event: %v", s, err)
 		}
-	}
-
-	err = jsonResponseWriterEncoder(w, SubscriptionResponse{
-		SubscriptionID: s.ID,
-	}, http.StatusCreated)
-	if err != nil {
-		rh.resourceProjection.Unregister(deviceID)
-		rh.store.PopSubscription(r.Context(), s.ID)
-		return http.StatusBadRequest, fmt.Errorf("cannot write response: %w", err)
 	}
 
 	return http.StatusOK, nil

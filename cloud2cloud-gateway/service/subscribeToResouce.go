@@ -11,6 +11,7 @@ import (
 	oapiStore "github.com/go-ocf/cloud/cloud2cloud-connector/store"
 	"github.com/go-ocf/cloud/cloud2cloud-gateway/store"
 	"github.com/go-ocf/kit/codec/json"
+	"github.com/go-ocf/kit/log"
 	kitNetGrpc "github.com/go-ocf/kit/net/grpc"
 	"github.com/gofrs/uuid"
 
@@ -132,28 +133,6 @@ func (rh *RequestHandler) subscribeToResource(w http.ResponseWriter, r *http.Req
 		return http.StatusBadRequest, fmt.Errorf("cannot save subscription: %w", err)
 	}
 
-	models = rh.resourceProjection.Models(deviceID, resourceID)
-	for _, m := range models {
-		resourceCtx := m.(*resourceCtx).Clone()
-		if resourceCtx.content.GetStatus() != pbRA.Status_OK && resourceCtx.content.GetStatus() != pbRA.Status_UNKNOWN {
-			rh.store.PopSubscription(r.Context(), s.ID)
-			rh.resourceProjection.Unregister(deviceID)
-			return statusToHttpStatus(resourceCtx.content.GetStatus()), fmt.Errorf("cannot prepare content to emit first event: %w", err)
-		}
-		rep, err := unmarshalContent(resourceCtx.content.GetContent())
-		if err != nil {
-			rh.store.PopSubscription(r.Context(), s.ID)
-			rh.resourceProjection.Unregister(deviceID)
-			return http.StatusBadRequest, fmt.Errorf("cannot prepare content to emit first event: %w", err)
-		}
-		_, err = emitEvent(r.Context(), events.EventType_ResourceChanged, s, rh.store.IncrementSubscriptionSequenceNumber, rep)
-		if err != nil {
-			rh.store.PopSubscription(r.Context(), s.ID)
-			rh.resourceProjection.Unregister(deviceID)
-			return http.StatusBadRequest, fmt.Errorf("cannot emit event: %w", err)
-		}
-	}
-
 	err = jsonResponseWriterEncoder(w, SubscriptionResponse{
 		SubscriptionID: s.ID,
 	}, http.StatusCreated)
@@ -161,6 +140,25 @@ func (rh *RequestHandler) subscribeToResource(w http.ResponseWriter, r *http.Req
 		rh.store.PopSubscription(r.Context(), s.ID)
 		rh.resourceProjection.Unregister(deviceID)
 		return http.StatusBadRequest, fmt.Errorf("cannot write response: %w", err)
+	}
+
+	models = rh.resourceProjection.Models(deviceID, resourceID)
+	for _, m := range models {
+		resourceCtx := m.(*resourceCtx).Clone()
+		if resourceCtx.content.GetStatus() != pbRA.Status_OK && resourceCtx.content.GetStatus() != pbRA.Status_UNKNOWN {
+			log.Errorf("subscribeToResource: cannot prepare content %+v: invalid status %v", s, resourceCtx.content.GetStatus())
+			continue
+		}
+		rep, err := unmarshalContent(resourceCtx.content.GetContent())
+		if err != nil {
+			log.Errorf("subscribeToResource: cannot unmarshal content %+v: %v", s, err)
+			continue
+		}
+
+		_, err = emitEvent(r.Context(), events.EventType_ResourceChanged, s, rh.store.IncrementSubscriptionSequenceNumber, rep)
+		if err != nil {
+			log.Errorf("subscribeToResource: cannot emit event %+v: %v", s, err)
+		}
 	}
 
 	return http.StatusOK, nil
